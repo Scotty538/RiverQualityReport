@@ -1,0 +1,395 @@
+---
+title: "Assignment 1"
+subtitle: "161250 Data Analysis<br>Semester 1 2024"
+author: "Scott O'Connor 96028881"
+output: 
+  html:
+    embed-resources: true
+    number-sections: false
+---
+
+# Load styles and data
+
+Do not change any of the code in this section.
+
+```{css, echo=TRUE, class.source="bg-important"}
+/* DO NOT DELETE OR CHANGE THIS CODE */
+#answer {
+  background-color: #C5E4F3;
+  border-left: 3px solid #297EB1;
+  padding: 10px;
+}
+```
+
+```{r}
+#| message: false
+library(tidyverse)
+library(visdat)
+library(naniar)
+library(sf)
+library(mapview)
+library(proj4)
+
+riv <- read_csv("riverdat.csv")
+```
+
+# Question 1 [8 marks total]
+
+Here's some code that makes a table of the number of catchments in each region. (See [this section](https://r4ds.hadley.nz/data-transform) of Hadley's book *R for Data Science* for more of this style of coding.)
+
+```{r}
+cpr <- riv |> 
+  group_by(Region) |> 
+  summarise(no_catchments = n_distinct(`Catchment name`))
+
+cpr
+```
+
+------
+
+a) Make a plot showing the number of catchments in each region, as per the data in the table above. For full marks, the regions should be ordered from most to fewest catchments. (Hints: use `geom_bar()` or `geom_col()` to make the plot; use `mutate()` and `fct_reorder()` to reorder the regions.) [2 marks]
+
+::: {#answer}
+
+```{r}
+cpr |> 
+  mutate(Region = fct_reorder(Region,no_catchments)) |> 
+  ggplot() +
+  aes(x = no_catchments, y = Region) +
+  geom_col() +
+  labs(title = "Number of Catchments by Region in NZ", x = "Number of Catchments")
+
+```
+
+:::
+
+------
+
+b) For the Canterbury region only, make a table of the mean `Temperature` and the mean `CHLA Mean` for each catchment. Which catchment has the highest mean  `Temperature`, and which catchment has the highest mean `CHLA Mean`? [2 marks]
+
+::: {#answer}
+
+```{r}
+riv |> 
+filter(Region == "Canterbury") |> 
+  group_by(`Catchment name`) |> 
+  select(Temperature, `CHLA Mean`) |> 
+  summarise(MeanTemp = mean(Temperature), MeanCHLA = mean(`CHLA Mean`))
+
+# There are NA values in the CHLA Mean variable. Do NAs make up a significant proportion
+# of the column?
+
+library(skimr)
+skim(riv)
+
+# Only missing 40 'CHLA Mean' observations from approx 4,000 (approx 1%). 
+# Let's just filter them out and complete the analysis.
+
+riv |> 
+filter(Region == "Canterbury") |> 
+  group_by(`Catchment name`) |> 
+  select(Temperature, `CHLA Mean`) |> 
+  filter(!is.na(`CHLA Mean`)) |> 
+  summarise(MeanTemp = mean(Temperature), MeanCHLA = mean(`CHLA Mean`)) -> tempChla
+
+tempChla
+
+```
+The Ashley River has the highest mean temperature as well as the highest mean 
+CHLA level.
+:::
+
+------
+
+c) Make a scatterplot of all the raw values of `Temperature` (x-axis) and `CHLA Mean` (y-axis) for the Canterbury region only, with the points coloured by `Catchment name`. Comment on the patterns in the plot. [4 marks]
+
+::: {#answer}
+```{r}
+riv |> 
+  filter(Region == "Canterbury") |> 
+  ggplot() +
+  aes(x = Temperature, y = `CHLA Mean`, col = `Catchment name`) +
+  geom_point() +
+  labs(title = "Temperature vs CHLA Mean for the Canterbury Region")
+```
+There is no clear trend. 
+The Waiau River exhibits similar mean CHLA values of about 10 units (the units were not given in the data frame nor in the assignment brief) over a more than 3 degree range of temperature from 9.5 to 13 degrees, and then exhibits a large cluster of higher values between 13 and 19 units at a temperature between 13.5 and 14 degrees. The Hurunui River exhibits decreasing mean CHLA values from 34 to 15 units as temperature increases from 12 to 13 degrees but also exhibits fairly constant CHLA values of around 10 units over the temperature range from 9.5 to 13.5 degrees. Both the Waimakariri River and the Rakaia River show a sharp increase in mean CHLA from 9.5 degrees to 10 degrees, then mean CHLA slowly decreases as temperature increases from ten degrees to twelve degrees.
+
+It seems that the mean CHLA content of a catchment is not related to temperature. Perhaps the mean CHLA is associated with elevation, land use, or season. Further investigation is required.
+
+:::
+
+-------------
+
+# Question 2 [12 marks]
+
+Conduct an Exploratory Data Analysis of this dataset. Show at least 3 other plots. For each plot, explain what it shows and why it was interesting to you. 
+
+Marks will be given for:
+
+- Sophistication of code (2)
+- Quality and clarity of plots (4)
+- Variety of types of plots (2)
+- Interpretation of plots (4)
+
+::: {#answer}
+
+First, let's investigate the missing data.
+
+```{r}
+vis_miss(riv)
+
+gg_miss_var(riv) 
+```
+
+Great news! There is very little (0.3%) missing data.
+Do the missing values coincide with each other?
+
+
+```{r}
+gg_miss_upset(riv, nsets = 11)
+
+riv_no_na <- riv |> 
+  filter(!is.na(`CHLA Mean`))
+
+#Let's confirm that all missing values have been removed
+riv_no_na |> 
+  vis_miss()
+
+riv_no_na |> 
+  gg_miss_var() 
+
+skim(riv_no_na)
+```
+Yes, the missing values coincide with each other. This is interesting because the missing 
+values do not seem to be missing completely at random. Was there a battery/mechanical failure on 
+a measuring device? Was there operator error? Were there errors inputting the information?    
+
+The hypothesis that I have generated from this exploration is that all missing values 
+share a missing value in the CHLA Mean variable. Confirmation of this hypothesis requires 
+a different dataset (or, alternatively, the current data could have been split into exploratory and validation sets. However, since we were only tasked with an exploratory analysis, I will stop with generating the hypothesis).
+
+Regardless of the cause, by filtering out the missing values from `CHLA Mean`, all missing values were removed from the data. Since there was such high correlation of 'missingness', let's use the 
+cleaned data for the rest of the exploratory analysis.
+
+
+The second point of exploration is the level of E. coli.
+According to the Ministry for the Environment (2017), if the median measurement of 
+E. coli of a catchment is higher than 130 per 100 mL, it is not safe to swim 
+unless the Land, Air, Water Aotearoa website confirms otherwise. This is a major 
+issue. NZ has promoted itself internationally as 100% Pure. I grew up swimming 
+in local rivers and never once checked water quality. How many rivers in NZ 
+have such poor water quality that the public needs to check a website to confirm 
+it is safe to swim?
+
+
+```{r}
+
+riv_no_na |> 
+  group_by(`Catchment name`) |> 
+  summarise(medianEcoli = median(`E. coli median`)) |> 
+  mutate(Catchment = fct_reorder(`Catchment name`, medianEcoli), Fillcolor = ifelse(medianEcoli >= 130, "Pink", "Grey")) |> 
+  ggplot() +
+  aes(x = medianEcoli, y = Catchment, fill = Fillcolor) +
+  geom_col() +
+   scale_fill_manual(values = c("Grey" = '#B7B7B2', "Pink" = '#C582B2'), guide = 'none') +
+  geom_vline(xintercept = 130) +
+  labs(title = "Median E.coli in NZ Rivers", x = "Median E. coli")
+ 
+```
+Oh dear. Manawatu River seems to have one of the highest overall median values 
+of E. coli. This is upsetting because I live near the river and I often take my two young 
+children down there to play. What is the distribution of E. coli along the river? 
+Are there safe places to swim without needing to check a website? Let's plot a map!
+
+```{r}
+manawatuSites <- riv_no_na |> 
+  filter(`Catchment name` == "Manawatu River")
+
+proj4 <- "+proj=tmerc +lat_0=0 +lon_0=173 +k=0.9996 +x_0=1600000 +y_0=10000000 +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=m +no_defs "
+
+# Extracting New Zealand Transverse Mercator coordinates from source file
+x_y <- manawatuSites[, 2:3]
+
+# Transforming the coordinates to longitude and latitude compatible with mapview()
+lon_lat <- project(x_y, proj4, inverse = TRUE)
+manawatuSitesLongLat <- manawatuSites |> mutate(Long = lon_lat$x, Lat = lon_lat$y) 
+
+manawatuSitesLongLat |> 
+  mapview(xcol = "Long", ycol = "Lat", zcol = "E. coli median", col.regions = c('green','orange','red'), at = c(0, 130, 260, 540), crs = 4269, grid = FALSE) 
+
+
+
+```
+
+Unfortunately the analysis appears to show that there are no sites along 
+the Manawatu River that can be swum in without checking the LAWA website first. 
+Even worse, there are a significant number of red sites which the Ministry for the Environment regards as not safe for swimming at any time. According to the Ministry, swimming at a 'red zone', which has a median value of at least 260 E.coli/100mL, is considered to have a 1% risk of sickness.
+
+The hypothesis that I have generated from this exploration is that it is not safe to swim anywhere in the Manawatu River without first checking the LAWA website. Confirmation of this hypothesis requires a different dataset (or, alternatively, the current data could have been split into exploratory and validation sets. However, since we were only tasked with an exploratory analysis, I will stop with generating the hypothesis)
+
+(From reviewing the provided documentation, it appears the supplied data is from 
+2017 at the latest. Hopefully, water quality has improved over the intervening 
+years.)
+
+Given that I don't know the dates of sampling, whether there has been an improvement 
+in water quality of not, and I do not have access to measuring equipment, could 
+eyes be used to judge the safety of a river for swimming? Let's include all the pollutants
+and use toxicity limits provided by the Waikato Regional Council (n.d.).
+```{r}
+# visual clarity vs e.coli
+ecoli <- riv_no_na |> 
+  ggplot() + 
+  aes(x = `E. coli median`, y = `Visual clarity median`) +
+  geom_point() +
+   geom_vline(xintercept = 130, col = 2) +
+  labs(x = "Median E.coli", y ="")
+
+N <- riv_no_na |> 
+  ggplot() + 
+  aes(x = `Total nitrogen median`, y = `Visual clarity median`) +
+  geom_point() +
+  geom_vline(xintercept = 0.50, col = 2) +
+  labs(x = "Median Nitrogen", y = "Median Visual Clarity")
+
+P <- riv_no_na |> 
+  ggplot() + 
+  aes(x = `Total phosphorus median`, y = `Visual clarity median`) +
+  geom_point() +
+  geom_vline(xintercept = 0.04, col = 2) +
+   labs(x = "Median Phosphorus", y = "")
+
+ammoniaN <- riv_no_na |> 
+  ggplot() + 
+  aes(x = `Ammoniacal nitrogen median pH`, y = `Visual clarity median`) +
+  geom_point() +
+   labs(x = "Ammonia", y = "")
+
+chla <- riv_no_na |> 
+  ggplot() + 
+  aes(x = `CHLA Mean`, y = `Visual clarity median`) +
+  geom_point() +
+   labs(x = "Mean CHLA", y = "")
+
+ss <- riv_no_na |> 
+  ggplot() + 
+  aes(x = `Turbidity median`, y = `Visual clarity median`) +
+  geom_point() +
+  geom_vline(xintercept = 5, col = 2) +
+   labs(x = "Turbidity", y = "")
+
+library(patchwork)
+
+(ecoli/N/P | ammoniaN/chla/ss) +
+  plot_annotation('Can the Health of a River be Measured by Eye?')
+
+```
+
+Unsurprisingly, the clearest water seems to have the lowest level of pollutants. 
+Therefore, the hypothesis that I have generated from this exploration is that it is safe to let my children play/swim in New Zealand rivers if the water is crystal clear (more scientifically,
+if the median visual clarity is above approximately 3.0). Confirmation of this hypothesis requires a different data set (or, alternatively, the current data could have been split into exploratory and validation sets. However, since we were only tasked with an exploratory analysis, I will stop with generating the hypothesis).
+
+BONUS ADDITIONAL EXPLORATION
+
+Finally, the last piece of exploration involves looking for trout. I have had a terrible time trout fishing recently. Maybe I can analyse the water quality along all NZ rivers and find potential fishing spots near Palmerston North which have ideal conditions for trout. In order to do this, I consulted some water quality guidelines for trout (Hay et al., 2006).
+
+```{r}
+# Best places to fish?
+
+whereToFish <- riv_no_na |> 
+  filter(Temperature <= 24, 
+         `Dissolved oxygen` >= 9, 
+         `Total nitrogen median` >= 0.01 & `Total nitrogen median` <= 0.295, 
+         `Total phosphorus median` >= 0.001 & `Total phosphorus median` <= 0.026, 
+         case_when(`ANZECC elevation class` == "lowland" ~ `Ammoniacal nitrogen median pH` <= 0.021, TRUE ~ `Ammoniacal nitrogen median pH` <= 0.01),
+         `E. coli median` <= 260,
+         case_when(`ANZECC elevation class` == "lowland" ~ `CHLA Mean` <= 120, TRUE ~ `CHLA Mean` <= 15),
+         `Visual clarity median` >= 3.75, 
+         `Turbidity median` <= 0.7
+         ) 
+
+whereToFishTable <- whereToFish |> 
+    group_by(`Catchment name`) |> 
+    summarise(Sites = n()) |> 
+    arrange(desc(Sites))
+
+  whereToFishTable
+
+proj4 <- "+proj=tmerc +lat_0=0 +lon_0=173 +k=0.9996 +x_0=1600000 +y_0=10000000 +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=m +no_defs "
+
+# Extracting New Zealand Transverse Mercator coordinates from source file
+x_y <- whereToFish[, 2:3]
+
+# Transforming the coordinates to longitude and latitude compatible with mapview()
+lon_lat <- project(x_y, proj4, inverse = TRUE)
+whereToFishLongLat <- whereToFish |> mutate(Long = lon_lat$x, Lat = lon_lat$y) 
+
+whereToFishLongLat |> 
+  mapview(xcol = "Long", ycol = "Lat", col.regions = 'green', crs = 4269, grid = FALSE) 
+
+
+
+```
+Not entirely surprising as Taupo is famous for its trout fishing.
+
+However, I was hoping to find somewhere a little closer to Palmerston North. After some fiddling,
+I discovered that the most limiting parameters were the turbidity and clarity. If I removed those
+from the filtering, I managed to find a much closer river that meets most of the recommended conditions for trout.
+
+
+```{r}
+# Best places to fish?
+
+whereToFish <- riv_no_na |> 
+  filter(Temperature <= 24, 
+         `Dissolved oxygen` >= 9, 
+         `Total nitrogen median` >= 0.01 & `Total nitrogen median` <= 0.295, 
+         `Total phosphorus median` >= 0.001 & `Total phosphorus median` <= 0.026, 
+         case_when(`ANZECC elevation class` == "lowland" ~ `Ammoniacal nitrogen median pH` <= 0.021, TRUE ~ `Ammoniacal nitrogen median pH` <= 0.01),
+         `E. coli median` <= 260,
+         case_when(`ANZECC elevation class` == "lowland" ~ `CHLA Mean` <= 120, TRUE ~ `CHLA Mean` <= 15),
+         #`Visual clarity median` >= 3.75, 
+         #`Turbidity median` <= 0.7
+         ) 
+
+whereToFishTable <- whereToFish |> 
+    group_by(`Catchment name`) |> 
+    summarise(Sites = n()) |> 
+    arrange(desc(Sites))
+
+  whereToFishTable
+
+proj4 <- "+proj=tmerc +lat_0=0 +lon_0=173 +k=0.9996 +x_0=1600000 +y_0=10000000 +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=m +no_defs "
+
+# Extracting New Zealand Transverse Mercator coordinates from source file
+x_y <- whereToFish[, 2:3]
+
+# Transforming the coordinates to longitude and latitude compatible with mapview()
+lon_lat <- project(x_y, proj4, inverse = TRUE)
+whereToFishLongLat <- whereToFish |> mutate(Long = lon_lat$x, Lat = lon_lat$y) 
+
+whereToFishLongLat |> 
+  mapview(xcol = "Long", ycol = "Lat", col.regions = 'green', crs = 4269, grid = FALSE) 
+
+
+
+```
+
+Therefore, the hypotheses that I have generated from this exploration is that:
+1. The best place for trout fishing in NZ is along the upper reaches of the Waikato River where it leaves Lake Taupo.
+2. The closest catchment to Palmerston North with decent conditions for trout is the Rangitikei River.
+Confirmation of these hypotheses require access to a dataset that contains information on trout
+populations in NZ rivers.
+
+
+
+References
+
+Hay, J,. Hayes, J., & Young, R. (2006). *Water quality guidelines to maintain trout fishery vales*. Prepared for Horizons Regional Council. Cawthron Report No 1205.  https://www.horizons.govt.nz/HRC/media/Media/One%20Plan%20Documents/Water-Quality-Guideline-to-protect-Trout-Fishery-Values.pdf?ext=.pdf
+
+Ministry for the Environment. (2017). *Swimming categories for E. coli in the* 
+*Clean Water package*. https://environment.govt.nz/assets/Publications/Files/
+report-on-e.coli-and-swimming-risk-may-2017.pdf
+
+Waikato Regional Council. (n.d.). *How healthy are our rivers?* https://waikatoregion.govt.nz/environment/water/rivers/healthyrivers/#:~:text=Ideally%2C%20total%20phosphorus%20levels%20in,metre%20are%20undesirably%20nutrient%2Denriched.
+:::
